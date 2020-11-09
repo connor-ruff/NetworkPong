@@ -19,14 +19,25 @@
 #define PADRX WIDTH - 2
 
 // Global variables recording the state of the game
-// Position of ball
-int ballX, ballY;
-// Movement of ball
-int dx, dy;
-// Position of paddles
-int padLY, padRY;
-// Player scores
-int scoreL, scoreR;
+struct board {
+	// Position of ball
+	int ballX, ballY;
+	// Movement of ball
+	int dx, dy;
+	// Position of paddles
+	int padLY, padRY;
+	// Player scores
+	int scoreL, scoreR;
+};
+struct board b;
+	
+struct opponentInfo {
+	int opponentFD;
+	struct sockaddr_in * sin;
+	bool host;
+	char * hostName;
+	char * port;
+}; 
 
 // ncurses window
 WINDOW *win;
@@ -70,13 +81,13 @@ void draw(int ballX, int ballY, int padLY, int padRY, int scoreL, int scoreR) {
  * Horizontal direction of the ball is randomized
  */
 void reset() {
-    ballX = WIDTH / 2;
-    padLY = padRY = ballY = HEIGHT / 2;
+    b.ballX = WIDTH / 2;
+    b.padLY = b.padRY = b.ballY = HEIGHT / 2;
     // dx is randomly either -1 or 1
-    dx = (rand() % 2) * 2 - 1;
-    dy = 0;
+    b.dx = (rand() % 2) * 2 - 1;
+    b.dy = 0;
     // Draw to reset everything visually
-    draw(ballX, ballY, padLY, padRY, scoreL, scoreR);
+    draw(b.ballX, b.ballY, b.padLY, b.padRY, b.scoreL, b.scoreR);
 }
 
 /* Display a message with a 3 second countdown
@@ -98,7 +109,7 @@ void countdown(const char *message) {
     wclear(popup);
     wrefresh(popup);
     delwin(popup);
-    padLY = padRY = HEIGHT / 2; // Wipe out any input that accumulated during the delay
+    b.padLY = b.padRY = HEIGHT / 2; // Wipe out any input that accumulated during the delay
 }
 
 /* Perform periodic game functions:
@@ -109,39 +120,39 @@ void countdown(const char *message) {
  */
 void tock() {
     // Move the ball
-    ballX += dx;
-    ballY += dy;
+    b.ballX += b.dx;
+    b.ballY += b.dy;
     
     // Check for paddle collisions
     // padY is y value of closest paddle to ball
-    int padY = (ballX < WIDTH / 2) ? padLY : padRY;
+    int padY = (b.ballX < WIDTH / 2) ? b.padLY : b.padRY;
     // colX is x value of ball for a paddle collision
-    int colX = (ballX < WIDTH / 2) ? PADLX + 1 : PADRX - 1;
-    if(ballX == colX && abs(ballY - padY) <= 2) {
+    int colX = (b.ballX < WIDTH / 2) ? PADLX + 1 : PADRX - 1;
+    if(b.ballX == colX && abs(b.ballY - padY) <= 2) {
         // Collision detected!
-        dx *= -1;
+        b.dx *= -1;
         // Determine bounce angle
-        if(ballY < padY) dy = -1;
-        else if(ballY > padY) dy = 1;
-        else dy = 0;
+        if(b.ballY < padY) b.dy = -1;
+        else if(b.ballY > padY) b.dy = 1;
+        else b.dy = 0;
     }
 
     // Check for top/bottom boundary collisions
-    if(ballY == 1) dy = 1;
-    else if(ballY == HEIGHT - 2) dy = -1;
+    if(b.ballY == 1) b.dy = 1;
+    else if(b.ballY == HEIGHT - 2) b.dy = -1;
     
     // Score points
-    if(ballX == 0) {
-        scoreR = (scoreR + 1) % 100;
+    if(b.ballX == 0) {
+        b.scoreR = (b.scoreR + 1) % 100;
         reset();
         countdown("SCORE -->");
-    } else if(ballX == WIDTH - 1) {
-        scoreL = (scoreL + 1) % 100;
+    } else if(b.ballX == WIDTH - 1) {
+        b.scoreL = (b.scoreL + 1) % 100;
         reset();
         countdown("<-- SCORE");
     }
     // Finally, redraw the current state
-    draw(ballX, ballY, padLY, padRY, scoreL, scoreR);
+    draw(b.ballX, b.ballY, b.padLY, b.padRY, b.scoreL, b.scoreR);
 }
 
 /* Listen to keyboard input
@@ -150,13 +161,13 @@ void tock() {
 void *listenInput(void *args) {
     while(1) {
         switch(getch()) {
-            case KEY_UP: padRY--;
+            case KEY_UP: b.padRY--;
              break;
-            case KEY_DOWN: padRY++;
+            case KEY_DOWN: b.padRY++;
              break;
-            case 'w': padLY--;
+            case 'w': b.padLY--;
              break;
-            case 's': padLY++;
+            case 's': b.padLY++;
              break;
             default: break;
        }
@@ -227,13 +238,29 @@ void * getMessage(int servSockfd, struct sockaddr_in * oppAddr){
 	buffer[byt_rec] = '\0';
 	char * toRet = buffer;
 	return toRet;
+}
+
+void sendMessage(struct sockaddr_in * dest, char * port, int sockfd, void * message, int msgSize) {
+
+	std::cerr << "FD: " << sockfd << std::endl;
+	dest->sin_family = AF_INET;
+	int iPort = atoi(port);
+	dest->sin_port = htons(iPort);
+
+	int retKey;
+	if( (retKey = sendto(sockfd, message, msgSize, 0, (struct sockaddr*)dest, sizeof(struct sockaddr_in))) < 0 ) {
+		std::cout << "Error on sendto(): " << strerror(errno) << std::endl;
+		std::exit(1);
+	}
+
 
 }
 
 
 
 
-void setUpServer(int &refresh, char * port, int& maxRounds, int servSockfd){
+
+void setUpServer(int &refresh, char * port, int& maxRounds, int servSockfd, struct opponentInfo * opInfo){
     // Process args
     // refresh is clock rate in microseconds 
     // This corresponds to the movement speed of the ball
@@ -253,29 +280,23 @@ void setUpServer(int &refresh, char * port, int& maxRounds, int servSockfd){
 	std::cout << "(" << maxRounds << " rounds) Waiting for challengers on port " << port << ".....\n" ;
 	struct sockaddr_in oppAddr;
 	char * buf = (char *) getMessage(servSockfd, &oppAddr);
+	opInfo->sin = &oppAddr;
 
+	std::cerr << "First Message From Client: " << buf << std::endl;
 
+	
+	sendMessage(opInfo->sin, opInfo->port, opInfo->opponentFD, (void *) &refresh, sizeof(int));
+	
 }
 
-void sendMessage(sockaddr_in * dest, char *hostName, char * port, int sockfd, void * message, int msgSize) {
-
-	dest->sin_family = AF_INET;
-	int iPort = atoi(port);
-	dest->sin_port = htons(iPort);
-
-	int retKey;
-	if( (retKey = sendto(sockfd, message, msgSize, 0, (struct sockaddr*)dest, sizeof(struct sockaddr_in))) < 0 ) {
-		std::cout << "Error on sendto(): " << strerror(errno) << std::endl;
-		std::exit(1);
-	}
-}
-
-int setUpClient(char * hostName, char * port) {
+int setUpClient(char * hostName, char * port, struct opponentInfo * opInfo) {
 
 	int sockfd;
 	if ( (sockfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
 		std::cout << "Error on socket(): " << strerror(errno) << std::endl;
 	}
+
+	opInfo->opponentFD = sockfd;
 
 	// Create Destination Struct
 	struct addrinfo * dest;
@@ -293,8 +314,20 @@ int setUpClient(char * hostName, char * port) {
 	}
 
 	struct sockaddr * hostAdr = dest->ai_addr;
+	opInfo->sin = (sockaddr_in *) hostAdr; 
 	char msg[8] = "hey";
-	sendMessage((struct sockaddr_in *)hostAdr, hostName, port, sockfd, (void *)msg, strlen(msg)+1);
+	sendMessage((struct sockaddr_in *)hostAdr, port, sockfd, (void *)msg, strlen(msg)+1);
+
+	int refresh = *((int *)getMessage(opInfo->opponentFD, opInfo->sin));
+
+	std::cerr << "Refresh: " << refresh << std::endl;
+
+}
+
+void * listenNetwork( void * oppInfo) {
+
+	oppInfo = (struct opponentInfo *) oppInfo;
+
 }
 
 int main(int argc, char *argv[]) {
@@ -308,17 +341,27 @@ int main(int argc, char *argv[]) {
 	int cliSockfd;
     int refresh;
 	int maxRounds; 
+
+	struct opponentInfo oppInfo;
+	
+
 	port = argv[2];
 	if ( !strcmp(argv[1], "--host" ) ){	
 		servSockfd = getSock(port);
-		setUpServer(refresh, port, maxRounds, servSockfd);
+		oppInfo.opponentFD = servSockfd;
+		oppInfo.host = true;
+		setUpServer(refresh, port, maxRounds, servSockfd, &oppInfo);
 	}else{
 		hostName = argv[1] ;
-		cliSockfd = setUpClient(hostName, port);
+		setUpClient(hostName, port, &oppInfo);
+		oppInfo.host = false;
 	}
 
+	
 
-
+	pthread_t pth0;
+	pthread_create(&pth0, NULL, listenNetwork, &oppInfo);
+	
     // Set up ncurses environment
     initNcurses();
 
