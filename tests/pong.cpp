@@ -212,7 +212,7 @@ int getSock(char * port){
 	return sockfd;
 }
 
-void getMessage(int servSockfd, struct sockaddr_in * oppAddr){
+void * getMessage(int servSockfd, struct sockaddr_in * oppAddr){
 
 	char buffer [BUFSIZ] ;
 
@@ -223,6 +223,10 @@ void getMessage(int servSockfd, struct sockaddr_in * oppAddr){
 		std::cout << "Error on recvfrom() " << strerror(errno) << std::endl;
 		std::exit(1);
 	}
+
+	buffer[byt_rec] = '\0';
+	char * toRet = buffer;
+	return toRet;
 
 }
 
@@ -244,10 +248,13 @@ void setUpServer(int &refresh, char * port, int& maxRounds, int servSockfd){
 	// Get Rounds
 	std::cout << "Enter maximum rounds to play: ";
 	scanf("%d", &maxRounds);
+	std::cerr << "This is a another test\n"; // TODO
 	// Wait for a connection
 	std::cout << "(" << maxRounds << " rounds) Waiting for challengers on port " << port << ".....\n" ;
 	struct sockaddr_in oppAddr;
-	getMessage(servSockfd, &oppAddr);
+	char * buf = (char *) getMessage(servSockfd, &oppAddr);
+
+
 }
 
 void sendMessage(sockaddr_in * dest, char *hostName, char * port, int sockfd, void * message, int msgSize) {
@@ -292,6 +299,8 @@ int setUpClient(char * hostName, char * port) {
 
 int main(int argc, char *argv[]) {
 
+	freopen("log.txt", "w", stderr);
+	std::cerr << "This is a test\n"; // TODO
 	// Determine if Host Or Guest
 	char * port;
 	char * hostName;
