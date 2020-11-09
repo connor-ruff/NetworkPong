@@ -32,7 +32,7 @@ struct board {
 struct board b;
 	
 struct opponentInfo {
-	int opponentFD;
+	int connFD;
 	struct sockaddr_in * sin;
 	bool host;
 	char * hostName;
@@ -189,6 +189,7 @@ void initNcurses() {
 }
 
 int getSock(char * port){
+//	dest->sin_port = htons(iPort);
 
 	int sockfd;
 	struct sockaddr_in sin;
@@ -223,14 +224,14 @@ int getSock(char * port){
 	return sockfd;
 }
 
-void * getMessage(int servSockfd, struct sockaddr_in * oppAddr){
+void * getMessage(int connFD, struct sockaddr_in * oppAddr){
 
 	char buffer [BUFSIZ] ;
 
-	int addrLen = sizeof(*oppAddr);
+	int addrLen = sizeof(struct sockaddr_in);
 	int byt_rec;
 	if (
-	(byt_rec = recvfrom(servSockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)oppAddr, (socklen_t *)&addrLen)) == -1) {
+	(byt_rec = recvfrom(connFD, buffer, sizeof(buffer), 0, (struct sockaddr *)oppAddr, (socklen_t *)&addrLen)) == -1) {
 		std::cout << "Error on recvfrom() " << strerror(errno) << std::endl;
 		std::exit(1);
 	}
@@ -244,8 +245,6 @@ void sendMessage(struct sockaddr_in * dest, char * port, int sockfd, void * mess
 
 	std::cerr << "FD: " << sockfd << std::endl;
 	dest->sin_family = AF_INET;
-	int iPort = atoi(port);
-	dest->sin_port = htons(iPort);
 
 	int retKey;
 	if( (retKey = sendto(sockfd, message, msgSize, 0, (struct sockaddr*)dest, sizeof(struct sockaddr_in))) < 0 ) {
@@ -260,7 +259,7 @@ void sendMessage(struct sockaddr_in * dest, char * port, int sockfd, void * mess
 
 
 
-void setUpServer(int &refresh, char * port, int& maxRounds, int servSockfd, struct opponentInfo * opInfo){
+void setUpServer(int &refresh, char * hostPort, int& maxRounds, struct opponentInfo * opInfo){
     // Process args
     // refresh is clock rate in microseconds 
     // This corresponds to the movement speed of the ball
@@ -277,26 +276,27 @@ void setUpServer(int &refresh, char * port, int& maxRounds, int servSockfd, stru
 	scanf("%d", &maxRounds);
 	std::cerr << "This is a another test\n"; // TODO
 	// Wait for a connection
-	std::cout << "(" << maxRounds << " rounds) Waiting for challengers on port " << port << ".....\n" ;
+	std::cout << "(" << maxRounds << " rounds) Waiting for challengers on port " << hostPort << ".....\n" ;
 	struct sockaddr_in oppAddr;
-	char * buf = (char *) getMessage(servSockfd, &oppAddr);
+	memset(&oppAddr, 0, sizeof(struct sockaddr_in));
+	char * buf = (char *) getMessage(opInfo->connFD, &oppAddr);
 	opInfo->sin = &oppAddr;
 
 	std::cerr << "First Message From Client: " << buf << std::endl;
 
 	
-	sendMessage(opInfo->sin, opInfo->port, opInfo->opponentFD, (void *) &refresh, sizeof(int));
+	sendMessage(&oppAddr, NULL, opInfo->connFD, (void *) &refresh, sizeof(int));
 	
 }
 
-int setUpClient(char * hostName, char * port, struct opponentInfo * opInfo) {
+int setUpClient(char * hostName, char * hostPort, struct opponentInfo * opInfo) {
 
 	int sockfd;
 	if ( (sockfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
 		std::cout << "Error on socket(): " << strerror(errno) << std::endl;
 	}
 
-	opInfo->opponentFD = sockfd;
+	opInfo->connFD = sockfd;
 
 	// Create Destination Struct
 	struct addrinfo * dest;
@@ -307,7 +307,7 @@ int setUpClient(char * hostName, char * port, struct opponentInfo * opInfo) {
 	hints.ai_protocol = 0;
 
 	int status;
-	if ( (status = getaddrinfo(hostName, port, &hints, &dest)) != 0 ) {
+	if ( (status = getaddrinfo(hostName, hostPort, &hints, &dest)) != 0 ) {
 		std::cout << "Failure on getaddrinfo(): " << gai_strerror(status) << std::endl;
 		freeaddrinfo(dest);
 		std::exit(1);
@@ -316,9 +316,11 @@ int setUpClient(char * hostName, char * port, struct opponentInfo * opInfo) {
 	struct sockaddr * hostAdr = dest->ai_addr;
 	opInfo->sin = (sockaddr_in *) hostAdr; 
 	char msg[8] = "hey";
-	sendMessage((struct sockaddr_in *)hostAdr, port, sockfd, (void *)msg, strlen(msg)+1);
 
-	int refresh = *((int *)getMessage(opInfo->opponentFD, opInfo->sin));
+	opInfo->sin->sin_port = htons(atoi(hostPort));
+	sendMessage((struct sockaddr_in *)hostAdr, hostPort, sockfd, (void *)msg, strlen(msg)+1);
+
+	int refresh = *((int *)getMessage(opInfo->connFD, opInfo->sin));
 
 	std::cerr << "Refresh: " << refresh << std::endl;
 
@@ -332,10 +334,9 @@ void * listenNetwork( void * oppInfo) {
 
 int main(int argc, char *argv[]) {
 
-	freopen("log.txt", "w", stderr);
 	std::cerr << "This is a test\n"; // TODO
 	// Determine if Host Or Guest
-	char * port;
+	char * hostPort;
 	char * hostName;
 	int servSockfd;
 	int cliSockfd;
@@ -345,15 +346,16 @@ int main(int argc, char *argv[]) {
 	struct opponentInfo oppInfo;
 	
 
-	port = argv[2];
-	if ( !strcmp(argv[1], "--host" ) ){	
-		servSockfd = getSock(port);
-		oppInfo.opponentFD = servSockfd;
+	hostPort = argv[2];
+	if ( !strcmp(argv[1], "--host" ) ){
+		freopen("ServLog.txt", "w", stderr);	
+		oppInfo.connFD = getSock(hostPort);
 		oppInfo.host = true;
-		setUpServer(refresh, port, maxRounds, servSockfd, &oppInfo);
+		setUpServer(refresh, hostPort, maxRounds, &oppInfo);
 	}else{
+		freopen("CliLog.txt", "w", stderr);	
 		hostName = argv[1] ;
-		setUpClient(hostName, port, &oppInfo);
+		setUpClient(hostName, hostPort, &oppInfo);
 		oppInfo.host = false;
 	}
 
