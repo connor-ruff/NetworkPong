@@ -192,7 +192,7 @@ void *listenInput(void *args) {
 	// Set Up Signal Listener for input thread
 	struct sigaction act;
 	memset(&act, '\0', sizeof(act));
-	sigaction(SIGQUIT, &act, NULL) ;
+	sigaction(SIGINT, &act, NULL) ;
 	
 
 
@@ -326,7 +326,7 @@ void * listenNetwork(void * args){
 	// Set Up Signal Handler For Network Thread
 	struct sigaction act;
 	memset(&act, '\0', sizeof(act));
-	sigaction(SIGQUIT, &act, NULL) ;
+	sigaction(SIGINT, &act, NULL) ;
 
 	while (1) {
 		message msg = *((message *)getMessage(&sin));
@@ -488,8 +488,8 @@ int main(int argc, char *argv[]) {
 
 	// KIll Threads
 	std::system("clear");
-	pthread_kill(pth, SIGQUIT);
-	pthread_kill(pth0, SIGQUIT);
+	pthread_kill(pth, SIGINT);
+	pthread_kill(pth0, SIGINT);
     // Clean up
     pthread_join(pth, NULL);
 	pthread_join(pth0, NULL);
