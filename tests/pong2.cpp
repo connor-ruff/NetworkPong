@@ -19,25 +19,21 @@
 #define PADRX WIDTH - 2
 
 // Global variables recording the state of the game
-struct board {
-	// Position of ball
-	int ballX, ballY;
-	// Movement of ball
-	int dx, dy;
-	// Position of paddles
-	int padLY, padRY;
-	// Player scores
-	int scoreL, scoreR;
-};
-struct board b;
-	
+// Position of ball
+int ballX, ballY;
+// Movement of ball
+int dx, dy;
+// Position of paddles
+int padLY, padRY;
+// Player scores
+int scoreL, scoreR;
+
 struct opponentInfo {
 	int connFD;
 	struct sockaddr_in * sin;
 	bool host;
-	char * hostName;
 	char * port;
-}; 
+};
 
 // ncurses window
 WINDOW *win;
@@ -81,13 +77,13 @@ void draw(int ballX, int ballY, int padLY, int padRY, int scoreL, int scoreR) {
  * Horizontal direction of the ball is randomized
  */
 void reset() {
-    b.ballX = WIDTH / 2;
-    b.padLY = b.padRY = b.ballY = HEIGHT / 2;
+    ballX = WIDTH / 2;
+    padLY = padRY = ballY = HEIGHT / 2;
     // dx is randomly either -1 or 1
-    b.dx = (rand() % 2) * 2 - 1;
-    b.dy = 0;
+    dx = (rand() % 2) * 2 - 1;
+    dy = 0;
     // Draw to reset everything visually
-    draw(b.ballX, b.ballY, b.padLY, b.padRY, b.scoreL, b.scoreR);
+    draw(ballX, ballY, padLY, padRY, scoreL, scoreR);
 }
 
 /* Display a message with a 3 second countdown
@@ -109,7 +105,7 @@ void countdown(const char *message) {
     wclear(popup);
     wrefresh(popup);
     delwin(popup);
-    b.padLY = b.padRY = HEIGHT / 2; // Wipe out any input that accumulated during the delay
+    padLY = padRY = HEIGHT / 2; // Wipe out any input that accumulated during the delay
 }
 
 /* Perform periodic game functions:
@@ -120,39 +116,40 @@ void countdown(const char *message) {
  */
 void tock() {
     // Move the ball
-    b.ballX += b.dx;
-    b.ballY += b.dy;
+    ballX += dx;
+    ballY += dy;
     
     // Check for paddle collisions
     // padY is y value of closest paddle to ball
-    int padY = (b.ballX < WIDTH / 2) ? b.padLY : b.padRY;
+    int padY = (ballX < WIDTH / 2) ? padLY : padRY;
     // colX is x value of ball for a paddle collision
-    int colX = (b.ballX < WIDTH / 2) ? PADLX + 1 : PADRX - 1;
-    if(b.ballX == colX && abs(b.ballY - padY) <= 2) {
+    int colX = (ballX < WIDTH / 2) ? PADLX + 1 : PADRX - 1;
+    if(ballX == colX && abs(ballY - padY) <= 2) {
         // Collision detected!
-        b.dx *= -1;
+    int refresh;
+        dx *= -1;
         // Determine bounce angle
-        if(b.ballY < padY) b.dy = -1;
-        else if(b.ballY > padY) b.dy = 1;
-        else b.dy = 0;
+        if(ballY < padY) dy = -1;
+        else if(ballY > padY) dy = 1;
+        else dy = 0;
     }
 
     // Check for top/bottom boundary collisions
-    if(b.ballY == 1) b.dy = 1;
-    else if(b.ballY == HEIGHT - 2) b.dy = -1;
+    if(ballY == 1) dy = 1;
+    else if(ballY == HEIGHT - 2) dy = -1;
     
     // Score points
-    if(b.ballX == 0) {
-        b.scoreR = (b.scoreR + 1) % 100;
+    if(ballX == 0) {
+        scoreR = (scoreR + 1) % 100;
         reset();
         countdown("SCORE -->");
-    } else if(b.ballX == WIDTH - 1) {
-        b.scoreL = (b.scoreL + 1) % 100;
+    } else if(ballX == WIDTH - 1) {
+        scoreL = (scoreL + 1) % 100;
         reset();
         countdown("<-- SCORE");
     }
     // Finally, redraw the current state
-    draw(b.ballX, b.ballY, b.padLY, b.padRY, b.scoreL, b.scoreR);
+    draw(ballX, ballY, padLY, padRY, scoreL, scoreR);
 }
 
 /* Listen to keyboard input
@@ -161,13 +158,13 @@ void tock() {
 void *listenInput(void *args) {
     while(1) {
         switch(getch()) {
-            case KEY_UP: b.padRY--;
+            case KEY_UP: padRY--;
              break;
-            case KEY_DOWN: b.padRY++;
+            case KEY_DOWN: padRY++;
              break;
-            case 'w': b.padLY--;
+            case 'w': padLY--;
              break;
-            case 's': b.padLY++;
+            case 's': padLY++;
              break;
             default: break;
        }
@@ -188,123 +185,82 @@ void initNcurses() {
     mvwaddch(win, HEIGHT-1, WIDTH / 2, ACS_BTEE);
 }
 
-int getSock(char * port){
-//	dest->sin_port = htons(iPort);
-
-	int sockfd;
-	struct sockaddr_in sin;
-	struct addrinfo hints;
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_flags = AI_PASSIVE;
-
-	struct addrinfo * results;
-
-	// Load Host Address Info
-	int status;
-	if ( (status = getaddrinfo(NULL, port, &hints, &results)) != 0 ){
-		std::cout << "Failure on getaddrinfo(): " << gai_strerror(status) << std::endl;
-		std::exit(1);
-	}
-
-	if ( (sockfd = socket(results->ai_family, results->ai_socktype, 0)) < 0){
-		std::cout << "Error on Socket(): " << strerror(errno) << std::endl;
-		std::exit(1);
-	}
-
-	int bindRes;
-	if (bindRes = bind(sockfd, results->ai_addr, results->ai_addrlen) == -1) {
-		std::cout << "Error on Bind(): " << strerror(errno) << std::endl;
-		close(sockfd);
-		std::exit(1);
-	}
-	
-	freeaddrinfo(results);
-	return sockfd;
-}
-
-void * getMessage(int connFD, struct sockaddr_in * oppAddr){
-
-	char buffer [BUFSIZ] ;
-
+void * getMessage(struct opponentInfo * oppInfo) {
+	char buffer[BUFSIZ];
 	int addrLen = sizeof(struct sockaddr_in);
 	int byt_rec;
-	if (
-	(byt_rec = recvfrom(connFD, buffer, sizeof(buffer), 0, (struct sockaddr *)oppAddr, (socklen_t *)&addrLen)) == -1) {
-		std::cout << "Error on recvfrom() " << strerror(errno) << std::endl;
-		std::exit(1);
-	}
+	
+	if (  (byt_rec = recvfrom(oppInfo->connFD, buffer, sizeof(buffer), 0, (struct sockaddr *) oppInfo->sin, (socklen_t *)&addrLen)) == -1 ) {
+		std::cerr << "Error on recvfrom() " << strerror(errno) << std::endl;
+		std::exit(1); }
 
 	buffer[byt_rec] = '\0';
 	char * toRet = buffer;
 	return toRet;
 }
 
-void sendMessage(struct sockaddr_in * dest, int sockfd, void * message, int msgSize) {
+void sendMessage(struct opponentInfo oppInfo, void * toSend, int msgSiz) {
 
-	dest->sin_family = AF_INET;
+	if (oppInfo.host) { std::cerr << "made it here\n"; }
+
+	oppInfo.sin->sin_family = AF_INET ;
+	oppInfo.sin->sin_port = htons(atoi(oppInfo.port)) ;
+
 
 	int retKey;
-	if( (retKey = sendto(sockfd, message, msgSize, 0, (struct sockaddr*)dest, sizeof(struct sockaddr_in))) < 0 ) {
-		std::cout << "Error on sendto(): " << strerror(errno) << std::endl;
+	if	( (retKey = sendto(oppInfo.connFD,toSend, msgSiz, 0, (struct sockaddr *)oppInfo.sin, sizeof(struct sockaddr_in)) ) < 0 ) {
+		std::cerr << "Error on sendto(): " << strerror(errno) << std::endl;
+		std::exit(1);
+	}
+}
+
+int getSock(char * port) {
+	int sockfd;
+	struct sockaddr_in sin;
+	struct addrinfo hints;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET ;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_flags = AI_PASSIVE;
+
+	struct addrinfo * results;
+	int status;
+	if( (status = getaddrinfo(NULL, port, &hints, &results)) != 0 ) {
+		std::cerr << "Failure on getaddrinfo(): " << gai_strerror(status) << std::endl;
+		std::exit(1);
+	}
+	if ( (sockfd = socket(results->ai_family, results->ai_socktype, 0)) < 0) {
+		std::cerr << "Error on socket(): " << strerror(errno) << std::endl;
+	}
+	int bindRes;
+	if ( (bindRes = bind(sockfd, results->ai_addr, results->ai_addrlen) ) == -1 ) {
+		std::cerr << "Error on bind(): " << strerror(errno) << std::endl;
+		close(sockfd);
 		std::exit(1);
 	}
 
-	std::cerr << "Sent " << retKey << " bytes" << std::endl;
+	freeaddrinfo(results);
+	return sockfd;
+}
 
+void connectToClient(struct opponentInfo * oppInfoPtr){
+
+	//memset(oppInfoPtr->sin, 0, sizeof(struct sockaddr_in)) ;
+	char * buf = (char *) getMessage(oppInfoPtr);
+	std::cerr << "First Message: " << buf << std::endl;
+	std::cerr << "Port: " << oppInfoPtr->sin << std::endl;
 
 }
 
-
-
-
-
-struct opponentInfo setUpServer(int &refresh, char * hostPort, int& maxRounds, struct opponentInfo * opInfo){
-    // Process args
-    // refresh is clock rate in microseconds 
-    // This corresponds to the movement speed of the ball
-	char difficulty [10];
-    printf("Please select the difficulty level (easy, medium or hard): ");
-	std::cin >> difficulty;
-	std::cout << difficulty << std::endl;
-    if(strcmp(difficulty, "easy") == 0) refresh = 80000;
-    else if(strcmp(difficulty, "medium") == 0) refresh = 40000;
-    else if(strcmp(difficulty, "hard") == 0) refresh = 20000; 
-
-	// Get Rounds
-	std::cout << "Enter maximum rounds to play: ";
-	scanf("%d", &maxRounds);
-	std::cerr << "This is a another test\n"; // TODO
-	// Wait for a connection
-	std::cout << "(" << maxRounds << " rounds) Waiting for challengers on port " << hostPort << ".....\n" ;
-	struct sockaddr_in oppAddr;
-	memset(&oppAddr, 0, sizeof(struct sockaddr_in));
-	char * buf = (char *) getMessage(opInfo->connFD, &oppAddr);
-	opInfo->sin = &oppAddr;
-
-	std::cerr << "First Message From Client: " << buf << std::endl;
-
-
-	std::cerr << "Server Sending First Message. opInfo->sin: " << opInfo->sin << std::endl;
-		
-	sendMessage(opInfo->sin, opInfo->connFD, (void *) &refresh, sizeof(int));
-	char * tester = "please" ;
-	sendMessage(opInfo->sin, opInfo->connFD, (void *)tester, strlen(tester)+1);
-	return *opInfo;
-
-}
-
-int setUpClient(char * hostName, char * hostPort, struct opponentInfo * opInfo, int & refresh) {
+void connectToHost(struct opponentInfo * oppInfoPtr, char * hostName) {
 
 	int sockfd;
-	if ( (sockfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-		std::cout << "Error on socket(): " << strerror(errno) << std::endl;
+	if ( (sockfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0 ) {
+		std::cerr << "Error on Socket(): " << strerror(errno) << std::endl;
 	}
 
-	opInfo->connFD = sockfd;
+	oppInfoPtr->connFD = sockfd;
 
-	// Create Destination Struct
 	struct addrinfo * dest;
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
@@ -313,62 +269,78 @@ int setUpClient(char * hostName, char * hostPort, struct opponentInfo * opInfo, 
 	hints.ai_protocol = 0;
 
 	int status;
-	if ( (status = getaddrinfo(hostName, hostPort, &hints, &dest)) != 0 ) {
-		std::cout << "Failure on getaddrinfo(): " << gai_strerror(status) << std::endl;
-		freeaddrinfo(dest);
+	if ( (status = getaddrinfo(hostName, oppInfoPtr->port, &hints, &dest)) != 0) {
+		std::cerr << "Failure on getaddrinfo(): " << gai_strerror(status) << std::endl;
 		std::exit(1);
 	}
 
-	struct sockaddr * hostAdr = dest->ai_addr;
-	opInfo->sin = (sockaddr_in *) hostAdr; 
-	char msg[8] = "hey";
+	struct sockaddr * hostAdr = dest->ai_addr ;
+	oppInfoPtr-> sin = (struct sockaddr_in * ) hostAdr ;
 
-	opInfo->sin->sin_port = htons(atoi(hostPort));
-	sendMessage((struct sockaddr_in *)hostAdr, sockfd, (void *)msg, strlen(msg)+1);
+	char msg[9] = "hey" ;
 
-	
-	refresh = *((int *)getMessage(opInfo->connFD, opInfo->sin));
-
-	char * tester = (char *) getMessage(opInfo->connFD, opInfo->sin);
-	std::cerr << "Tester: " << tester << std::endl;
-}
-
-void * listenNetwork( void * oppInfo) {
-
-	oppInfo = (struct opponentInfo *) oppInfo;
-
+	sendMessage(*oppInfoPtr, (void *) msg, strlen(msg)+1) ;	
 }
 
 int main(int argc, char *argv[]) {
 
-	// Determine if Host Or Guest
 	char * hostPort;
 	char * hostName;
-	int servSockfd;
-	int cliSockfd;
-    int refresh;
-	int maxRounds; 
-
 	struct opponentInfo oppInfo;
-	
+	int refresh;
+	int maxRounds;
 
 	hostPort = argv[2];
-	if ( !strcmp(argv[1], "--host" ) ){
-		freopen("ServLog.txt", "w", stderr);	
+	if ( !strcmp(argv[1], "--host") ){
+		freopen("servLog.txt", "w", stderr);
+		std::cerr << "HOST!" << std::endl;
 		oppInfo.connFD = getSock(hostPort);
+		
+		// Establish Difficulty
+		char difficulty[10]; 
+		printf("Please select the difficulty level (easy, medium or hard): ");
+		scanf("%s", &difficulty);
+		if(strcmp(difficulty, "easy") == 0) refresh = 80000;
+		else if(strcmp(difficulty, "medium") == 0) refresh = 40000;
+		else if(strcmp(difficulty, "hard") == 0) refresh = 20000;
+
+		// Get Max Rounds
+		std::cout << "Enter maximum rounds to play: " ;
+		scanf("%d", &maxRounds);
+
+		std::cout << "Waiting For Connections on Port " << hostPort << std::endl;
+
+		// Connect to an opponent
+		connectToClient(&oppInfo);
 		oppInfo.host = true;
-		oppInfo = setUpServer(refresh, hostPort, maxRounds, &oppInfo);
 	}else{
-		freopen("CliLog.txt", "w", stderr);	
-		hostName = argv[1] ;
-		setUpClient(hostName, hostPort, &oppInfo, refresh);
+		freopen("cliLog.txt", "w", stderr);
+		std::cerr << "GUEST!" << std::endl;
 		oppInfo.host = false;
+		oppInfo.port = hostPort;
+		hostName = argv[1];
+		connectToHost(&oppInfo, hostName);
 	}
 
+	std::cerr << "My Host Value is: " << oppInfo.host << std::endl;
 
-	pthread_t pth0;
-	pthread_create(&pth0, NULL, listenNetwork, &oppInfo);
-	
+	if (oppInfo.host == false) {
+		std::cerr << "Ready to Rec...\n";
+		char * rec = (char *) getMessage(&oppInfo) ;
+		std::cerr << "Received From Host: " << rec << std::endl;
+	}
+	else {
+		std::cerr << "About to send...\n";
+		char temp [6] = "aaa";
+		sendMessage(oppInfo, (void *) temp, strlen(temp)+1) ;
+		std::cerr << "Sent " << temp << " to host!\n";
+	}
+
+	// --------------------//
+    // Process args
+    // refresh is clock rate in microseconds
+    // This corresponds to the movement speed of the ball
+
     // Set up ncurses environment
     initNcurses();
 
@@ -379,8 +351,6 @@ int main(int argc, char *argv[]) {
     // Listen to keyboard input in a background thread
     pthread_t pth;
     pthread_create(&pth, NULL, listenInput, NULL);
-
-	std::cerr << "Refresh: --" << refresh << "--  (Size of: " << sizeof(refresh) << ")\n" ;
 
     // Main game loop executes tock() method every REFRESH microseconds
     struct timeval tv;
